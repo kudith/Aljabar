@@ -12,28 +12,12 @@ from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import re
 import nltk
-import logging
 
 nltk.download('stopwords')
 nltk.download('wordnet')
 
 # Set page configuration
 st.set_page_config(layout="wide", page_title="Movie Recommendation")
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger()
-file_handler = logging.FileHandler('recommendation_log.log')
-file_handler.setLevel(logging.INFO)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-logger.addHandler(file_handler)
-
-# Function to log recommendations
-def log_recommendations(title, recommendations, recommendation_type):
-    logger.info(f"Recommendation Type: {recommendation_type}")
-    logger.info(f"Movie: {title}")
-    for idx, movie in recommendations.iterrows():
-        logger.info(f"Recommended Movie: {movie['title']}, Score: {movie['imdb_rating']}")
 
 # Load dataset
 @st.cache_data
@@ -106,33 +90,21 @@ def get_genre_recommendations(genre, min_rating=6.5):
     genre_movies = movies[movies['genres'].str.contains(genre, case=False)]
     return genre_movies[genre_movies['imdb_rating'] > min_rating]
 
-# Function to recommend movies
-def get_recommendations(title, knn_model=knn, cosine_sim=cosine_sim, min_rating=6.5):
+# Function to recommend movies using hybrid approach
+def get_hybrid_recommendations(title, genre, min_rating=6.5):
     idx = movies[movies['title'] == title].index[0]
-    distances, indices = knn_model.kneighbors(tfidf_matrix[idx], n_neighbors=21)
+    distances, indices = knn.kneighbors(tfidf_matrix[idx], n_neighbors=21)
     sim_scores = list(enumerate(cosine_sim[idx]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
     sim_scores = sim_scores[1:21]
     movie_indices = [i[0] for i in sim_scores]
-    recommendations = movies.iloc[movie_indices]
-    recommendations = recommendations[recommendations['imdb_rating'] > min_rating]
-    recommendations = recommendations.sort_values(by='imdb_rating', ascending=False).head(20)
-    log_recommendations(title, recommendations, "Content-Based")
-    return recommendations
+    content_recommendations = movies.iloc[movie_indices]
+    content_recommendations = content_recommendations[content_recommendations['imdb_rating'] > min_rating]
+    content_recommendations = content_recommendations.sort_values(by='imdb_rating', ascending=False).head(20)
 
-# Function to recommend movies using collaborative filtering
-def get_collaborative_recommendations(title, min_rating=6.5):
-    recommendations = get_recommendations(title, min_rating=min_rating)
-    log_recommendations(title, recommendations, "Collaborative Filtering")
-    return recommendations.sort_values(by='imdb_rating', ascending=False).head(20)
-
-# Function to recommend movies using hybrid approach
-def get_hybrid_recommendations(title, genre, min_rating=6.5):
-    content_recommendations = get_recommendations(title, min_rating=min_rating)
     genre_recommendations = get_genre_recommendations(genre, min_rating=min_rating)
     hybrid_recommendations = pd.concat([content_recommendations, genre_recommendations]).drop_duplicates()
     hybrid_recommendations = hybrid_recommendations.sort_values(by='imdb_rating', ascending=False).head(20)
-    log_recommendations(title, hybrid_recommendations, "Hybrid")
     return hybrid_recommendations
 
 # Function to visualize recommendations
@@ -239,7 +211,6 @@ st.title("🎬 Movie Recommendation System")
 
 # Search and recommendation section
 movie_name = st.text_input("🔎 Enter a movie name to get recommendations:", "")
-recommendation_type = st.selectbox("Select recommendation type:", ["Content-Based", "Collaborative Filtering", "Hybrid"])
 
 if movie_name:
     with st.spinner('Finding movies...'):
@@ -264,13 +235,8 @@ if movie_name:
             st.write(f"**Overview:** {selected_movie['overview']}")
             st.write(f"**Tagline:** {selected_movie['tagline']}")
 
-            # Get recommendations based on selected type
-            if recommendation_type == "Content-Based":
-                recommendations = get_recommendations(selected_movie['title'])
-            elif recommendation_type == "Collaborative Filtering":
-                recommendations = get_collaborative_recommendations(selected_movie['title'])
-            elif recommendation_type == "Hybrid":
-                recommendations = get_hybrid_recommendations(selected_movie['title'], selected_movie['genres'])
+            # Get hybrid recommendations
+            recommendations = get_hybrid_recommendations(selected_movie['title'], selected_movie['genres'])
 
             st.write("### Recommended Movies:")
             cols = st.columns(5)
